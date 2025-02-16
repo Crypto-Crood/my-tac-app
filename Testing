@@ -1,0 +1,8 @@
+#!/bin/bash
+# Install and login to proot Ubuntu
+pkg update && pkg upgrade -y
+pkg install proot-distro -y
+proot-distro install ubuntu
+
+# Log into Ubuntu and execute the next script
+proot-distro login ubuntu -- bash -c "curl -sSL https://raw.githubusercontent.com/Crypto-Crood/my-tac-app/refs/heads/main/Nexus%20node%20run | bash"
