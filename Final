@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Update Termux and install proot-distro
+pkg update -y && pkg install proot-distro -y
+
+# Install Ubuntu
+proot-distro install ubuntu
+
+# Log into Ubuntu, update packages, and run the Nexus script inside Ubuntu
+proot-distro login ubuntu -- bash -c "apt update && apt upgrade -y && curl -sSL 'https://raw.githubusercontent.com/Crypto-Crood/my-tac-app/refs/heads/main/Nexus%20script' | bash"
