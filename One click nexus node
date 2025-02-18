@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Update and install required packages
+pkg update && pkg upgrade -y && pkg install -y proot-distro
+
+# Install and set up Ubuntu\proot-distro install ubuntu
+proot-distro login ubuntu -- bash -c "apt update && apt upgrade -y && apt install -y build-essential pkg-config libssl-dev git-all protobuf-compiler && export PATH=\"$HOME/.cargo/bin:$PATH\""
+
+# Prompt for prover ID
+echo -ne '\033[1;32mEnter your prover-id : \033[0m'
+read prover_id
+
+# Save prover ID and open it in nano
+mkdir -p .nexus
+echo $prover_id > .nexus/prover-id
+cd .nexus
+nano prover-id
+
+# Install Nexus CLI
+curl https://cli.nexus.xyz/ | sh
