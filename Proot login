@@ -1,1 +1,1 @@
-pkg update && pkg upgrade -y && pkg install proot-distro -y && proot-distro install ubuntu && proot-distro login ubuntu
+pkg update && pkg upgrade -y && pkg install -y proot-distro && proot-distro install ubuntu && proot-distro login ubuntu -- bash -c "apt update && apt upgrade -y && apt install -y build-essential pkg-config libssl-dev git-all protobuf-compiler"
