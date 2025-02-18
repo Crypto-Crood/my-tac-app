@@ -1,0 +1,1 @@
+read -p $'\033[1;32mEnter your prover-id: \033[0m' prover_id && mkdir -p ~/.nexus && echo $prover_id > ~/.nexus/prover-id && curl -sL https://cli.nexus.xyz/ | sh
