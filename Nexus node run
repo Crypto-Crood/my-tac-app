@@ -1,7 +1,0 @@
-#!/bin/bash
-
-# Run Proot login script
-curl -sSL "https://raw.githubusercontent.com/Crypto-Crood/my-tac-app/refs/heads/main/Proot%20login" | bash
-
-# Run Nexus new script
-exec curl -sSL "https://raw.githubusercontent.com/Crypto-Crood/my-tac-app/refs/heads/main/Nexus%20new" | bash
