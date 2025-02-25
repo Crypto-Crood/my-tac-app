@@ -1,1 +1,72 @@
 
+#!/bin/bash
+
+# Ask for necessary inputs
+echo -ne "\033[1;92mEnter your Token name: \033[0m" && read PROJECT_NAME
+echo -ne "\033[1;92mEnter Chain ID: \033[0m" && read CHAIN_ID
+echo -ne "\033[1;92mEnter RPC URL: \033[0m" && read RPC_URL
+echo -ne "\033[1;92mEnter your private key: \033[0m" && read PRIVATE_KEY
+
+# Convert first three letters of the token name to uppercase for the token symbol
+TOKEN_SYMBOL=$(echo "$PROJECT_NAME" | cut -c1-3 | tr '[:lower:]' '[:upper:]')
+
+mkdir "$PROJECT_NAME"
+cd "$PROJECT_NAME"
+
+forge init
+
+rm src/Counter.sol script/Counter.s.sol test/Counter.t.sol
+
+forge install OpenZeppelin/openzeppelin-contracts --no-commit
+
+cat > "src/$PROJECT_NAME.sol" <<EOL
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract $PROJECT_NAME is ERC20 {
+    constructor() ERC20("$PROJECT_NAME", "$TOKEN_SYMBOL") {
+        _mint(msg.sender, 1000000 * 10**18); // Initial supply: 1,000,000 tokens
+    }
+}
+EOL
+
+cat > foundry.toml <<EOL
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+[rpc_endpoints]
+custom_rpc = "$RPC_URL"
+
+[etherscan]
+custom_rpc = { key = "abc", url = "$RPC_URL/api" }
+EOL
+
+forge build
+
+export PRIVATE_KEY="$PRIVATE_KEY"
+
+DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL \
+             --private-key $PRIVATE_KEY \
+             --chain-id $CHAIN_ID \
+             --broadcast \
+             "src/$PROJECT_NAME.sol:$PROJECT_NAME")
+
+CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP 'Deployed to: \K0x[a-fA-F0-9]{40}')
+
+echo -e "\033[1;92mContract deployed at: $CONTRACT_ADDRESS\033[0m"
+
+# Ask for the verifier details after deployment
+echo -ne "\033[1;92mEnter Verifier Name: \033[0m" && read VERIFIER_NAME
+echo -ne "\033[1;92mEnter Verifier URL: \033[0m" && read VERIFIER_URL
+
+forge verify-contract \
+  --rpc-url $RPC_URL \
+  --chain-id $CHAIN_ID \
+  --verifier "$VERIFIER_NAME" \
+  --verifier-url "$VERIFIER_URL" \
+  $CONTRACT_ADDRESS \
+  "src/$PROJECT_NAME.sol:$PROJECT_NAME"
