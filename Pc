@@ -1,0 +1,153 @@
+#!/bin/bash
+set -e  # Exit on any error
+
+# Step 1: Install dependencies directly on the system
+apt update && apt upgrade -y
+apt install -y curl build-essential pkg-config libssl-dev git-all protobuf-compiler
+
+# Step 2: Install Rust
+curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+
+# Step 3: Install Foundry
+curl -L https://foundry.paradigm.xyz | bash
+source $HOME/.bashrc
+$HOME/.foundry/bin/foundryup
+export PATH="$PATH:$HOME/.foundry/bin"  # Ensure Foundry binaries are in PATH
+
+# Step 4: Prompt for Project Name and Private Key
+echo -ne "\033[1;92mEnter project name: \033[0m" && read PROJECT_NAME
+echo -e "\033[1;93mWARNING: Never share your private key. Ensure your system is secure before proceeding.\033[0m"
+if [ -z "$PRIVATE_KEY" ]; then
+    echo -ne "\033[1;92mEnter your private key (input hidden): \033[0m" && read -s PRIVATE_KEY
+    echo ""
+else
+    echo -e "\033[1;92mUsing PRIVATE_KEY from environment.\033[0m"
+fi
+
+# Step 5: Prompt for Network Values
+echo -ne "\033[1;92mEnter RPC URL: \033[0m" && read RPC_URL
+echo -ne "\033[1;92mEnter Chain ID: \033[0m" && read CHAIN_ID
+echo -ne "\033[1;92mEnter Verifier Name: \033[0m" && read VERIFIER_NAME
+echo -ne "\033[1;92mEnter Verifier URL: \033[0m" && read VERIFIER_URL
+
+# Step 6: Function to generate a random 3-letter token name
+generate_random_name() {
+    echo "$(cat /dev/urandom | tr -dc "A-Z" | head -c3)"
+}
+
+# Step 7: Array to hold 5 random token names
+TOKENS=()
+for i in {1..5}; do
+    TOKENS+=($(generate_random_name))
+done
+
+# Step 8: Create project directory and initialize Foundry
+mkdir "$PROJECT_NAME" && cd "$PROJECT_NAME"
+forge init
+
+# Step 9: Remove default contracts created by forge init
+rm src/Counter.sol script/Counter.s.sol test/Counter.t.sol
+
+# Step 10: Install OpenZeppelin contracts
+forge install OpenZeppelin/openzeppelin-contracts --no-commit
+
+# Step 11: Create ERC-20 token contracts
+for TOKEN in "${TOKENS[@]}"; do
+    cat > "src/$TOKEN.sol" <<EOL
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract $TOKEN is ERC20 {
+    constructor() ERC20("$TOKEN", "$TOKEN") {
+        _mint(msg.sender, 1000000 * 10**18); // 1M tokens with 18 decimals
+    }
+}
+EOL
+done
+
+# Step 12: Create a simple DEX contract
+cat > "src/DEX.sol" <<EOL
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract DEX {
+    mapping(address => mapping(address => uint256)) public liquidity;
+
+    function addLiquidity(address token, uint256 amount) external {
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        liquidity[msg.sender][token] += amount;
+    }
+
+    function swap(address fromToken, address toToken, uint256 amount) external {
+        require(liquidity[msg.sender][toToken] >= amount, "Not enough liquidity");
+        IERC20(fromToken).transferFrom(msg.sender, address(this), amount);
+        IERC20(toToken).transfer(msg.sender, amount);
+    }
+}
+EOL
+
+# Step 13: Compile contracts
+forge build
+
+# Step 14: Deploy ERC-20 tokens and store addresses
+TOKEN_ADDRESSES=()
+for TOKEN in "${TOKENS[@]}"; do
+    DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/$TOKEN.sol:$TOKEN" 2>/dev/null)
+    CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP "Deployed to: \K0x[a-fA-F0-9]{40}" 2>/dev/null || echo "")
+    if [ -n "$CONTRACT_ADDRESS" ]; then
+        TOKEN_ADDRESSES+=("$CONTRACT_ADDRESS")
+        echo -e "\033[1;92m$TOKEN deployed at $CONTRACT_ADDRESS\033[0m"
+    fi
+done
+
+# Step 15: Deploy DEX contract
+DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/DEX.sol:DEX" 2>/dev/null)
+DEX_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP "Deployed to: \K0x[a-fA-F0-9]{40}" 2>/dev/null || echo "")
+if [ -n "$DEX_ADDRESS" ]; then
+    echo -e "\033[1;92mDEX deployed at $DEX_ADDRESS\033[0m"
+fi
+
+# Step 16: Verify contracts
+for i in "${!TOKENS[@]}"; do
+    forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "${TOKEN_ADDRESSES[$i]}" "src/${TOKENS[$i]}.sol:${TOKENS[$i]}" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for ${TOKENS[$i]} successful\033[0m"
+done
+forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "$DEX_ADDRESS" "src/DEX.sol:DEX" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for DEX successful\033[0m"
+
+# Step 17: Approve Tokens for Adding Liquidity
+for i in "${!TOKENS[@]}"; do
+    cast send "${TOKEN_ADDRESSES[$i]}" \
+        --rpc-url $RPC_URL \
+        --private-key $PRIVATE_KEY \
+        "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for DEX\033[0m"
+done
+
+# Step 18: Add Liquidity to the DEX
+for i in "${!TOKENS[@]}"; do
+    cast send "$DEX_ADDRESS" \
+        --rpc-url $RPC_URL \
+        --private-key $PRIVATE_KEY \
+        "addLiquidity(address,uint256)" "${TOKEN_ADDRESSES[$i]}" 50000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mLiquidity added for ${TOKENS[$i]}\033[0m"
+done
+
+# Step 19: Approve Tokens for Swapping
+for i in "${!TOKENS[@]}"; do
+    cast send "${TOKEN_ADDRESSES[$i]}" \
+        --rpc-url $RPC_URL \
+        --private-key $PRIVATE_KEY \
+        "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for swapping\033[0m"
+done
+
+# Step 20: Perform one swap per token (using first token as base)
+for i in "${!TOKENS[@]}"; do
+    if [ $i -ne 0 ]; then  # Skip the first token as it will be the "from" token
+        cast send "$DEX_ADDRESS" \
+            --rpc-url $RPC_URL \
+            --private-key $PRIVATE_KEY \
+            "swap(address,address,uint256)" "${TOKEN_ADDRESSES[0]}" "${TOKEN_ADDRESSES[$i]}" 1000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mSwapped ${TOKENS[0]} for ${TOKENS[$i]}\033[0m"
+    fi
+done
+
+echo -e "\033[1;92mSetup and swaps completed successfully!\033[0m"
