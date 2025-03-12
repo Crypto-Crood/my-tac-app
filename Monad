@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e  # Exit on any error
 
 # Install dependencies and Foundry (run as root or with sudo)
 apt update && apt upgrade -y
@@ -144,4 +145,4 @@ for i in "${!TOKENS[@]}"; do
     fi
 done
 
-echo -e "\033[1;92mSetup and swaps completed successfully!\033[0m"
+echo -e "\033[1;92mSetup and swaps completed successfully!\0330m"
