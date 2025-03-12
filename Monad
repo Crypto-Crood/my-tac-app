@@ -1,8 +1,23 @@
 #!/bin/bash
 
+# Install dependencies and Foundry (run as root or with sudo)
+apt update && apt upgrade -y
+apt install -y curl build-essential pkg-config libssl-dev git-all protobuf-compiler
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+curl -L https://foundry.paradigm.xyz | bash
+source /root/.bashrc
+/root/.foundry/bin/foundryup
+
 # Prompt for Project Name and Private Key
 echo -ne "\033[1;92mEnter project name: \033[0m" && read PROJECT_NAME
-echo -ne "\033[1;92mEnter your private key: \033[0m" && read PRIVATE_KEY
+echo -e "\033[1;93mWARNING: Never share your private key. Ensure your system is secure before proceeding.\033[0m"
+if [ -z "$PRIVATE_KEY" ]; then
+    echo -ne "\033[1;92mEnter your private key (input hidden): \033[0m" && read -s PRIVATE_KEY
+    echo ""
+else
+    echo -e "\033[1;92mUsing PRIVATE_KEY from environment.\033[0m"
+fi
 
 # Fixed Network Values (Monad Testnet)
 CHAIN_ID=10143
