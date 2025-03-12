@@ -1,56 +1,65 @@
 #!/bin/bash
 set -e  # Exit on any error
 
-# Install dependencies and Foundry (run as root or with sudo)
-apt update && apt upgrade -y
-apt install -y curl build-essential pkg-config libssl-dev git-all protobuf-compiler
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source $HOME/.cargo/env
-curl -L https://foundry.paradigm.xyz | bash
-source /root/.bashrc
-/root/.foundry/bin/foundryup
-export PATH="$PATH:/root/.foundry/bin"  # Ensure Foundry binaries are in PATH
+# Install proot-distro and set up Ubuntu (for systems with pkg, e.g., Termux)
+pkg update && pkg upgrade -y
+pkg install -y proot-distro
+proot-distro install ubuntu
 
-# Prompt for Project Name and Private Key
-echo -ne "\033[1;92mEnter project name: \033[0m" && read PROJECT_NAME
-echo -e "\033[1;93mWARNING: Never share your private key. Ensure your system is secure before proceeding.\033[0m"
-if [ -z "$PRIVATE_KEY" ]; then
-    echo -ne "\033[1;92mEnter your private key (input hidden): \033[0m" && read -s PRIVATE_KEY
-    echo ""
-else
-    echo -e "\033[1;92mUsing PRIVATE_KEY from environment.\033[0m"
-fi
+# Run the rest of the script inside the Ubuntu environment
+proot-distro login ubuntu -- bash -c '
+    set -e  # Exit on any error within Ubuntu
 
-# Fixed Network Values (Monad Testnet)
-CHAIN_ID=10143
-RPC_URL="https://testnet-rpc.monad.xyz"
-VERIFIER_NAME="sourcify"
-VERIFIER_URL="https://sourcify-api-monad.blockvision.org"
+    # Install dependencies and Foundry inside Ubuntu
+    apt update && apt upgrade -y
+    apt install -y curl build-essential pkg-config libssl-dev git-all protobuf-compiler
+    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source $HOME/.cargo/env
+    curl -L https://foundry.paradigm.xyz | bash
+    source /root/.bashrc
+    /root/.foundry/bin/foundryup
+    export PATH="$PATH:/root/.foundry/bin"  # Ensure Foundry binaries are in PATH
 
-# Function to generate a random 3-letter token name
-generate_random_name() {
-    echo "$(cat /dev/urandom | tr -dc 'A-Z' | head -c3)"
-}
+    # Prompt for Project Name and Private Key
+    echo -ne "\033[1;92mEnter project name: \033[0m" && read PROJECT_NAME
+    echo -e "\033[1;93mWARNING: Never share your private key. Ensure your system is secure before proceeding.\033[0m"
+    if [ -z "$PRIVATE_KEY" ]; then
+        echo -ne "\033[1;92mEnter your private key (input hidden): \033[0m" && read -s PRIVATE_KEY
+        echo ""
+    else
+        echo -e "\033[1;92mUsing PRIVATE_KEY from environment.\033[0m"
+    fi
 
-# Array to hold 5 random token names
-TOKENS=()
-for i in {1..5}; do
-    TOKENS+=($(generate_random_name))
-done
+    # Fixed Network Values (Monad Testnet)
+    CHAIN_ID=10143
+    RPC_URL="https://testnet-rpc.monad.xyz"
+    VERIFIER_NAME="sourcify"
+    VERIFIER_URL="https://sourcify-api-monad.blockvision.org"
 
-# Create project directory and initialize Foundry
-mkdir "$PROJECT_NAME" && cd "$PROJECT_NAME"
-forge init
+    # Function to generate a random 3-letter token name
+    generate_random_name() {
+        echo "$(cat /dev/urandom | tr -dc "A-Z" | head -c3)"
+    }
 
-# Remove default contracts
-rm src/Counter.sol script/Counter.s.sol test/Counter.t.sol
+    # Array to hold 5 random token names
+    TOKENS=()
+    for i in {1..5}; do
+        TOKENS+=($(generate_random_name))
+    done
 
-# Install OpenZeppelin contracts
-forge install OpenZeppelin/openzeppelin-contracts --no-commit
+    # Create project directory and initialize Foundry
+    mkdir "$PROJECT_NAME" && cd "$PROJECT_NAME"
+    forge init
 
-# Create ERC-20 token contracts
-for TOKEN in "${TOKENS[@]}"; do
-    cat > "src/$TOKEN.sol" <<EOL
+    # Remove default contracts
+    rm src/Counter.sol script/Counter.s.sol test/Counter.t.sol
+
+    # Install OpenZeppelin contracts
+    forge install OpenZeppelin/openzeppelin-contracts --no-commit
+
+    # Create ERC-20 token contracts
+    for TOKEN in "${TOKENS[@]}"; do
+        cat > "src/$TOKEN.sol" <<EOL
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -61,10 +70,10 @@ contract $TOKEN is ERC20 {
     }
 }
 EOL
-done
+    done
 
-# Create a simple DEX contract
-cat > "src/DEX.sol" <<EOL
+    # Create a simple DEX contract
+    cat > "src/DEX.sol" <<EOL
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -85,65 +94,66 @@ contract DEX {
 }
 EOL
 
-# Compile contracts
-forge build
+    # Compile contracts
+    forge build
 
-# Deploy ERC-20 tokens and store addresses
-TOKEN_ADDRESSES=()
-for TOKEN in "${TOKENS[@]}"; do
-    DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/$TOKEN.sol:$TOKEN" 2>/dev/null)
-    CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP 'Deployed to: \K0x[a-fA-F0-9]{40}' 2>/dev/null || echo "")
-    if [ -n "$CONTRACT_ADDRESS" ]; then
-        TOKEN_ADDRESSES+=("$CONTRACT_ADDRESS")
-        echo -e "\033[1;92m$TOKEN deployed at $CONTRACT_ADDRESS\033[0m"
+    # Deploy ERC-20 tokens and store addresses
+    TOKEN_ADDRESSES=()
+    for TOKEN in "${TOKENS[@]}"; do
+        DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/$TOKEN.sol:$TOKEN" 2>/dev/null)
+        CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP "Deployed to: \K0x[a-fA-F0-9]{40}" 2>/dev/null || echo "")
+        if [ -n "$CONTRACT_ADDRESS" ]; then
+            TOKEN_ADDRESSES+=("$CONTRACT_ADDRESS")
+            echo -e "\033[1;92m$TOKEN deployed at $CONTRACT_ADDRESS\033[0m"
+        fi
+    done
+
+    # Deploy DEX contract
+    DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/DEX.sol:DEX" 2>/dev/null)
+    DEX_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP "Deployed to: \K0x[a-fA-F0-9]{40}" 2>/dev/null || echo "")
+    if [ -n "$DEX_ADDRESS" ]; then
+        echo -e "\033[1;92mDEX deployed at $DEX_ADDRESS\033[0m"
     fi
-done
 
-# Deploy DEX contract
-DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY --chain-id $CHAIN_ID --broadcast "src/DEX.sol:DEX" 2>/dev/null)
-DEX_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oP 'Deployed to: \K0x[a-fA-F0-9]{40}' 2>/dev/null || echo "")
-if [ -n "$DEX_ADDRESS" ]; then
-    echo -e "\033[1;92mDEX deployed at $DEX_ADDRESS\033[0m"
-fi
+    # Verify contracts
+    for i in "${!TOKENS[@]}"; do
+        forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "${TOKEN_ADDRESSES[$i]}" "src/${TOKENS[$i]}.sol:${TOKENS[$i]}" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for ${TOKENS[$i]} successful\033[0m"
+    done
+    forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "$DEX_ADDRESS" "src/DEX.sol:DEX" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for DEX successful\033[0m"
 
-# Verify contracts
-for i in "${!TOKENS[@]}"; do
-    forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "${TOKEN_ADDRESSES[$i]}" "src/${TOKENS[$i]}.sol:${TOKENS[$i]}" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for ${TOKENS[$i]} successful\033[0m"
-done
-forge verify-contract --rpc-url $RPC_URL --chain-id $CHAIN_ID --verifier "$VERIFIER_NAME" --verifier-url "$VERIFIER_URL" "$DEX_ADDRESS" "src/DEX.sol:DEX" >/dev/null 2>&1 && echo -e "\033[1;92mVerification for DEX successful\033[0m"
+    # Step 1: Approve Tokens for Adding Liquidity
+    for i in "${!TOKENS[@]}"; do
+        cast send "${TOKEN_ADDRESSES[$i]}" \
+            --rpc-url $RPC_URL \
+            --private-key $PRIVATE_KEY \
+            "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for DEX\033[0m"
+    done
 
-# Step 1: Approve Tokens for Adding Liquidity
-for i in "${!TOKENS[@]}"; do
-    cast send "${TOKEN_ADDRESSES[$i]}" \
-        --rpc-url $RPC_URL \
-        --private-key $PRIVATE_KEY \
-        "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for DEX\033[0m"
-done
-
-# Step 2: Add Liquidity to the DEX
-for i in "${!TOKENS[@]}"; do
-    cast send "$DEX_ADDRESS" \
-        --rpc-url $RPC_URL \
-        --private-key $PRIVATE_KEY \
-        "addLiquidity(address,uint256)" "${TOKEN_ADDRESSES[$i]}" 50000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mLiquidity added for ${TOKENS[$i]}\033[0m"
-done
-
-# Step 3: Approve Tokens for Swapping
-for i in "${!TOKENS[@]}"; do
-    cast send "${TOKEN_ADDRESSES[$i]}" \
-        --rpc-url $RPC_URL \
-        --private-key $PRIVATE_KEY \
-        "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for swapping\033[0m"
-done
-
-# Step 4: Perform one swap per token (using first token as base)
-for i in "${!TOKENS[@]}"; do
-    if [ $i -ne 0 ]; then  # Skip the first token as it will be the "from" token
+    # Step 2: Add Liquidity to the DEX
+    for i in "${!TOKENS[@]}"; do
         cast send "$DEX_ADDRESS" \
             --rpc-url $RPC_URL \
             --private-key $PRIVATE_KEY \
-            "swap(address,address,uint256)" "${TOKEN_ADDRESSES[0]}" "${TOKEN_ADDRESSES[$i]}" 1000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mSwapped ${TOKENS[0]} for ${TOKENS[$i]}\033[0m"
-    fi
-done
+            "addLiquidity(address,uint256)" "${TOKEN_ADDRESSES[$i]}" 50000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mLiquidity added for ${TOKENS[$i]}\033[0m"
+    done
 
-echo -e "\033[1;92mSetup and swaps completed successfully!\033[0m"
+    # Step 3: Approve Tokens for Swapping
+    for i in "${!TOKENS[@]}"; do
+        cast send "${TOKEN_ADDRESSES[$i]}" \
+            --rpc-url $RPC_URL \
+            --private-key $PRIVATE_KEY \
+            "approve(address,uint256)" "$DEX_ADDRESS" 1000000000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mToken ${TOKENS[$i]} approved for swapping\033[0m"
+    done
+
+    # Step 4: Perform one swap per token (using first token as base)
+    for i in "${!TOKENS[@]}"; do
+        if [ $i -ne 0 ]; then  # Skip the first token as it will be the "from" token
+            cast send "$DEX_ADDRESS" \
+                --rpc-url $RPC_URL \
+                --private-key $PRIVATE_KEY \
+                "swap(address,address,uint256)" "${TOKEN_ADDRESSES[0]}" "${TOKEN_ADDRESSES[$i]}" 1000000000000000000 >/dev/null 2>&1 && echo -e "\033[1;92mSwapped ${TOKENS[0]} for ${TOKENS[$i]}\033[0m"
+        fi
+    done
+
+    echo -e "\033[1;92mSetup and swaps completed successfully!\033[0m"
+'
