@@ -9,6 +9,7 @@ source $HOME/.cargo/env
 curl -L https://foundry.paradigm.xyz | bash
 source /root/.bashrc
 /root/.foundry/bin/foundryup
+export PATH="$PATH:/root/.foundry/bin"  # Ensure Foundry binaries are in PATH
 
 # Prompt for Project Name and Private Key
 echo -ne "\033[1;92mEnter project name: \033[0m" && read PROJECT_NAME
@@ -145,4 +146,4 @@ for i in "${!TOKENS[@]}"; do
     fi
 done
 
-echo -e "\033[1;92mSetup and swaps completed successfully!\0330m"
+echo -e "\033[1;92mSetup and swaps completed successfully!\033[0m"
